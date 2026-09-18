@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from celery_app import add_numbers
 
 app = Flask(__name__)
 
@@ -80,6 +81,20 @@ def delete_user(user_id):
         return jsonify({"error": "User not found"}), 404
 
     return jsonify({"message": "User deleted successfully"})
+
+@app.route("/calculate", methods=["POST"])
+def calculate():
+    data = request.get_json()
+
+    if not data or "a" not in data or "b" not in data:
+        return jsonify({"error": "a and b are required"}), 400
+
+    task = add_numbers.delay(data["a"], data["b"])
+
+    return jsonify({
+        "message": "Calculation started",
+        "task_id": task.id
+    }), 202
 
 if __name__ == "__main__":
     app.run(debug=True)
