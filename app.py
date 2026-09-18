@@ -36,6 +36,9 @@ def get_users():
 def create_user():
     data = request.get_json()
 
+    if not data or "name" not in data:
+        return jsonify({"error": "Name is required"}), 400
+
     new_user = {
         "id": users_collection.count_documents({}) + 1,
         "name": data["name"]
@@ -51,6 +54,9 @@ def create_user():
 def update_user(user_id):
     data = request.get_json()
 
+    if not data or "name" not in data:
+        return jsonify({"error": "Name is required"}), 400
+    
     result = users_collection.update_one(
         {"id": user_id},
         {"$set": {"name": data["name"]}}
