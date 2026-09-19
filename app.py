@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
-from celery_app import add_numbers
+from celery_app import add_numbers, log_task_creation
 
 app = Flask(__name__)
 
@@ -12,6 +12,7 @@ load_dotenv()
 client = MongoClient(os.getenv("MONGO_URI"))
 db = client["worklog"]
 users_collection = db["users"]
+tasks_collection = db["tasks"]
 
 
 @app.route("/")
@@ -143,6 +144,105 @@ def calculate():
         "task_id": task.id
     }), 202
 
+@app.route("/tasks", methods=["POST"])
+def create_task():
+    data = request.get_json()
+
+    if not data or "title" not in data:
+        return jsonify({
+            "error": "Title is required"
+        }), 400
+
+    status = data.get("status", "pending")
+    priority = data.get("priority", "medium")
+
+    if status not in ["pending", "in_progress", "completed"]:
+        return jsonify({
+             "error": "Invalid status"
+        }), 400
+
+    if priority not in ["low", "medium", "high"]:
+        return jsonify({
+             "error": "Invalid priority"
+        }), 400
+    
+    new_task = {
+        "id": tasks_collection.count_documents({}) + 1,
+        "title": data["title"],
+        "description": data.get("description", ""),
+        "assigned_to": data.get("assigned_to"),
+        "status": status,
+        "priority": priority
+    }
+
+    tasks_collection.insert_one(new_task)
+
+    log_task_creation.delay(
+        new_task["id"],
+        new_task["title"]
+    )
+
+    return jsonify(new_task), 201
+
+
+@app.route("/tasks", methods=["GET"])
+def get_tasks():
+    tasks = list(tasks_collection.find({}, {"_id": 0}))
+    return jsonify(tasks)
+
+
+@app.route("/tasks/<int:task_id>", methods=["PUT"])
+def update_task(task_id):
+    data = request.get_json()
+
+    if not data:
+        return jsonify({
+            "error": "Request data is required"
+        }), 400
+
+    updates = {}
+
+    for field in ["title", "description", "assigned_to", "status", "priority"]:
+        if field in data:
+            updates[field] = data[field]
+
+    if not updates:
+        return jsonify({
+            "error": "No fields to update"
+        }), 400
+
+    result = tasks_collection.update_one(
+        {"id": task_id},
+        {"$set": updates}
+    )
+
+    if result.matched_count == 0:
+        return jsonify({
+            "error": "Task not found"
+        }), 404
+
+    updated_task = tasks_collection.find_one(
+        {"id": task_id},
+        {"_id": 0}
+    )
+
+    return jsonify(updated_task)
+
+
+@app.route("/tasks/<int:task_id>", methods=["DELETE"])
+def delete_task(task_id):
+    result = tasks_collection.delete_one({
+        "id": task_id
+    })
+
+    if result.deleted_count == 0:
+        return jsonify({
+            "error": "Task not found"
+        }), 404
+
+    return jsonify({
+        "message": "Task deleted successfully"
+    })
 
 if __name__ == "__main__":
     app.run(debug=True)
