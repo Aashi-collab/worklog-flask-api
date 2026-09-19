@@ -10,10 +10,16 @@ app = Flask(__name__)
 load_dotenv()
 
 client = MongoClient(os.getenv("MONGO_URI"))
+
 db = client["worklog"]
+
 users_collection = db["users"]
 tasks_collection = db["tasks"]
 
+
+# =========================
+# HOME
+# =========================
 
 @app.route("/")
 def home():
@@ -23,14 +29,26 @@ def home():
     """
 
 
+# =========================
+# USER ROUTES
+# =========================
+
 @app.route("/users", methods=["GET"])
 def get_users():
-    users = list(users_collection.find({}, {"_id": 0, "password": 0}))
+
+    users = list(
+        users_collection.find(
+            {},
+            {"_id": 0, "password": 0}
+        )
+    )
+
     return jsonify(users)
 
 
 @app.route("/users", methods=["POST"])
 def create_user():
+
     data = request.get_json()
 
     if not data or "name" not in data or "email" not in data or "password" not in data:
@@ -47,15 +65,19 @@ def create_user():
 
     result = users_collection.insert_one(new_user)
 
-    new_user["_id"] = str(result.inserted_id)
+    response_user = {
+        "id": new_user["id"],
+        "name": new_user["name"],
+        "email": new_user["email"],
+        "_id": str(result.inserted_id)
+    }
 
-    new_user.pop("password")
-
-    return jsonify(new_user), 201
+    return jsonify(response_user), 201
 
 
 @app.route("/login", methods=["POST"])
 def login():
+
     data = request.get_json()
 
     if not data or "email" not in data or "password" not in data:
@@ -92,10 +114,13 @@ def login():
 
 @app.route("/users/<int:user_id>", methods=["PUT"])
 def update_user(user_id):
+
     data = request.get_json()
 
     if not data or "name" not in data:
-        return jsonify({"error": "Name is required"}), 400
+        return jsonify({
+            "error": "Name is required"
+        }), 400
 
     result = users_collection.update_one(
         {"id": user_id},
@@ -103,11 +128,13 @@ def update_user(user_id):
     )
 
     if result.matched_count == 0:
-        return jsonify({"error": "User not found"}), 404
+        return jsonify({
+            "error": "User not found"
+        }), 404
 
     updated_user = users_collection.find_one(
         {"id": user_id},
-        {"_id": 0}
+        {"_id": 0, "password": 0}
     )
 
     return jsonify(updated_user)
@@ -115,18 +142,28 @@ def update_user(user_id):
 
 @app.route("/users/<int:user_id>", methods=["DELETE"])
 def delete_user(user_id):
-    result = users_collection.delete_one({"id": user_id})
+
+    result = users_collection.delete_one({
+        "id": user_id
+    })
 
     if result.deleted_count == 0:
-        return jsonify({"error": "User not found"}), 404
+        return jsonify({
+            "error": "User not found"
+        }), 404
 
     return jsonify({
         "message": "User deleted successfully"
     })
 
 
+# =========================
+# CELERY CALCULATION
+# =========================
+
 @app.route("/calculate", methods=["POST"])
 def calculate():
+
     data = request.get_json()
 
     if not data or "a" not in data or "b" not in data:
@@ -144,8 +181,14 @@ def calculate():
         "task_id": task.id
     }), 202
 
+
+# =========================
+# TASK ROUTES
+# =========================
+
 @app.route("/tasks", methods=["POST"])
 def create_task():
+
     data = request.get_json()
 
     if not data or "title" not in data:
@@ -156,43 +199,110 @@ def create_task():
     status = data.get("status", "pending")
     priority = data.get("priority", "medium")
 
-    if status not in ["pending", "in_progress", "completed"]:
+    # Validate status
+    if status not in [
+        "pending",
+        "in_progress",
+        "completed"
+    ]:
         return jsonify({
-             "error": "Invalid status"
+            "error": "Invalid status"
         }), 400
 
-    if priority not in ["low", "medium", "high"]:
+    # Validate priority
+    if priority not in [
+        "low",
+        "medium",
+        "high"
+    ]:
         return jsonify({
-             "error": "Invalid priority"
+            "error": "Invalid priority"
         }), 400
-    
+
+    assigned_to = data.get("assigned_to")
+
+    # Validate assigned user
+    if assigned_to is not None:
+
+        user = users_collection.find_one({
+            "id": assigned_to
+        })
+
+        if not user:
+            return jsonify({
+                "error": "Assigned user not found"
+            }), 404
+
     new_task = {
         "id": tasks_collection.count_documents({}) + 1,
         "title": data["title"],
         "description": data.get("description", ""),
-        "assigned_to": data.get("assigned_to"),
+        "assigned_to": assigned_to,
         "status": status,
         "priority": priority
     }
 
-    tasks_collection.insert_one(new_task)
+    # Save task in MongoDB
+    result = tasks_collection.insert_one(new_task)
 
+    # Background task using Celery
     log_task_creation.delay(
         new_task["id"],
         new_task["title"]
     )
 
-    return jsonify(new_task), 201
+    # JSON-safe response
+    response_task = {
+        "id": new_task["id"],
+        "title": new_task["title"],
+        "description": new_task["description"],
+        "assigned_to": new_task["assigned_to"],
+        "status": new_task["status"],
+        "priority": new_task["priority"],
+        "_id": str(result.inserted_id)
+    }
+
+    return jsonify(response_task), 201
 
 
 @app.route("/tasks", methods=["GET"])
 def get_tasks():
-    tasks = list(tasks_collection.find({}, {"_id": 0}))
+
+    query = {}
+
+    status = request.args.get("status")
+    priority = request.args.get("priority")
+    assigned_to = request.args.get("assigned_to")
+
+    if status:
+        query["status"] = status
+
+    if priority:
+        query["priority"] = priority
+
+    if assigned_to:
+
+        try:
+            query["assigned_to"] = int(assigned_to)
+
+        except ValueError:
+            return jsonify({
+                "error": "assigned_to must be an integer"
+            }), 400
+
+    tasks = list(
+        tasks_collection.find(
+            query,
+            {"_id": 0}
+        )
+    )
+
     return jsonify(tasks)
 
 
 @app.route("/tasks/<int:task_id>", methods=["PUT"])
 def update_task(task_id):
+
     data = request.get_json()
 
     if not data:
@@ -202,7 +312,15 @@ def update_task(task_id):
 
     updates = {}
 
-    for field in ["title", "description", "assigned_to", "status", "priority"]:
+    # Allowed fields
+    for field in [
+        "title",
+        "description",
+        "assigned_to",
+        "status",
+        "priority"
+    ]:
+
         if field in data:
             updates[field] = data[field]
 
@@ -210,6 +328,46 @@ def update_task(task_id):
         return jsonify({
             "error": "No fields to update"
         }), 400
+
+    # Validate status
+    if "status" in updates:
+
+        if updates["status"] not in [
+            "pending",
+            "in_progress",
+            "completed"
+        ]:
+            return jsonify({
+                "error": "Invalid status"
+            }), 400
+
+    # Validate priority
+    if "priority" in updates:
+
+        if updates["priority"] not in [
+            "low",
+            "medium",
+            "high"
+        ]:
+            return jsonify({
+                "error": "Invalid priority"
+            }), 400
+
+    # Validate assigned user
+    if "assigned_to" in updates:
+
+        assigned_to = updates["assigned_to"]
+
+        if assigned_to is not None:
+
+            user = users_collection.find_one({
+                "id": assigned_to
+            })
+
+            if not user:
+                return jsonify({
+                    "error": "Assigned user not found"
+                }), 404
 
     result = tasks_collection.update_one(
         {"id": task_id},
@@ -231,6 +389,7 @@ def update_task(task_id):
 
 @app.route("/tasks/<int:task_id>", methods=["DELETE"])
 def delete_task(task_id):
+
     result = tasks_collection.delete_one({
         "id": task_id
     })
@@ -243,6 +402,8 @@ def delete_task(task_id):
     return jsonify({
         "message": "Task deleted successfully"
     })
+
+# RUN APPLICATION
 
 if __name__ == "__main__":
     app.run(debug=True)
