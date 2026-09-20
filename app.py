@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from celery_app import add_numbers, log_task_creation
@@ -16,6 +17,7 @@ db = client["worklog"]
 
 users_collection = db["users"]
 tasks_collection = db["tasks"]
+posts_collection = db["posts"]
 
 
 # =========================
@@ -24,7 +26,17 @@ tasks_collection = db["tasks"]
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+    posts = list(
+        posts_collection.find(
+            {},
+            {"_id": 0}
+        ).sort("created_at", -1)
+    )
+
+    return render_template(
+        "index.html",
+        posts=posts
+    )
 
 
 # =========================
@@ -202,11 +214,25 @@ def profile():
         session.clear()
         return redirect(url_for("login"))
 
+    following_count = len(user.get("following", []))
+
+    followers_count = users_collection.count_documents(
+        {"following": session["user_id"]}
+    )
+
+    my_posts = list(
+        posts_collection.find(
+            {"user_id": session["user_id"]},
+            {"_id": 0}
+        ).sort("created_at", -1)
+    )
+
     return render_template(
         "profile.html",
         user=user,
-        followers_count=0,
-        following_count=0
+        followers_count=followers_count,
+        following_count=following_count,
+        posts=my_posts
     )
 
 
@@ -215,6 +241,147 @@ def logout():
     session.clear()
     flash("You have been logged out.")
     return redirect(url_for("home"))
+
+@app.route("/posts", methods=["POST"])
+def create_post():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    content = request.form.get("content", "").strip()
+
+    if not content:
+        flash("Post cannot be empty.")
+        return redirect(url_for("home"))
+
+    user = users_collection.find_one(
+        {"id": session["user_id"]}
+    )
+
+    if not user:
+        session.clear()
+        return redirect(url_for("login"))
+
+    new_post = {
+        "id": posts_collection.count_documents({}) + 1,
+        "user_id": user["id"],
+        "author_name": user["name"],
+        "content": content,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "likes": [],
+        "comments": []
+    }
+
+    posts_collection.insert_one(new_post)
+
+    flash("Post published successfully!")
+    return redirect(url_for("home"))
+
+
+@app.route("/posts/<int:post_id>/like", methods=["POST"])
+def like_post(post_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    user_id = session["user_id"]
+
+    post = posts_collection.find_one({"id": post_id})
+
+    if not post:
+        flash("Post not found.")
+        return redirect(url_for("home"))
+
+    likes = post.get("likes", [])
+
+    if user_id in likes:
+        likes.remove(user_id)
+        message = "Post unliked."
+    else:
+        likes.append(user_id)
+        message = "Post liked!"
+
+    posts_collection.update_one(
+        {"id": post_id},
+        {"$set": {"likes": likes}}
+    )
+
+    flash(message)
+    return redirect(url_for("home"))
+
+@app.route("/posts/<int:post_id>/comment", methods=["POST"])
+def comment_post(post_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    content = request.form.get("comment", "").strip()
+
+    if not content:
+        flash("Comment cannot be empty.")
+        return redirect(url_for("home"))
+
+    post = posts_collection.find_one({"id": post_id})
+
+    if not post:
+        flash("Post not found.")
+        return redirect(url_for("home"))
+
+    user = users_collection.find_one({"id": session["user_id"]})
+
+    if not user:
+        session.clear()
+        return redirect(url_for("login"))
+
+    new_comment = {
+        "user_id": user["id"],
+        "author_name": user["name"],
+        "content": content,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+    }
+
+    posts_collection.update_one(
+        {"id": post_id},
+        {"$push": {"comments": new_comment}}
+    )
+
+    flash("Comment added!")
+    return redirect(url_for("home"))
+
+
+@app.route("/users/<int:user_id>/follow", methods=["POST"])
+def follow_user(user_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    current_user_id = session["user_id"]
+
+    if current_user_id == user_id:
+        flash("You cannot follow yourself.")
+        return redirect(url_for("home"))
+
+    target_user = users_collection.find_one({"id": user_id})
+
+    if not target_user:
+        flash("User not found.")
+        return redirect(url_for("home"))
+
+    current_user = users_collection.find_one({"id": current_user_id})
+
+    following = current_user.get("following", [])
+
+    if user_id in following:
+        following.remove(user_id)
+        message = "User unfollowed."
+    else:
+        following.append(user_id)
+        message = "User followed."
+
+    users_collection.update_one(
+        {"id": current_user_id},
+        {"$set": {"following": following}}
+    )
+
+    flash(message)
+    return redirect(url_for("home"))
+
 
 # =========================
 # CELERY CALCULATION

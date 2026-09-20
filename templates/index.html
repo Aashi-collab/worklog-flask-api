@@ -4,8 +4,183 @@
 
 {% block content %}
 
+{% if session.get("user_id") %}
+
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+
+        <!-- Create Post -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h4 class="mb-3">Share an update</h4>
+
+                <form method="POST" action="/posts">
+                    <textarea name="content"
+                              class="form-control mb-3"
+                              rows="4"
+                              placeholder="What are you working on?"
+                              required></textarea>
+
+                    <button type="submit" class="btn btn-primary">
+                        Publish Post
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Work Feed -->
+        <h3 class="mb-3">Work Feed</h3>
+
+        {% if posts %}
+
+            {% for post in posts %}
+
+            <div class="card shadow-sm mb-3">
+                <div class="card-body">
+
+                    <!-- Author -->
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+
+                        <div>
+                            <h5 class="mb-0">
+                                👤 {{ post.author_name }}
+                            </h5>
+
+                            <small class="text-muted">
+                                {{ post.created_at }}
+                            </small>
+                        </div>
+
+                        <!-- Follow Button -->
+                        {% if post.user_id != session.get("user_id") %}
+
+                        <form method="POST"
+                              action="/users/{{ post.user_id }}/follow">
+
+                            <button type="submit"
+                                    class="btn btn-sm btn-outline-primary">
+                                Follow / Unfollow
+                            </button>
+
+                        </form>
+
+                        {% endif %}
+
+                    </div>
+
+                    <!-- Post Content -->
+                    <p class="mt-3 mb-3">
+                        {{ post.content }}
+                    </p>
+
+                    <hr>
+
+                    <!-- Like -->
+                    <div class="mb-3">
+
+                        <form method="POST"
+                              action="/posts/{{ post.id }}/like">
+
+                            <button type="submit"
+                                    class="btn btn-sm btn-outline-danger">
+
+                                ❤️ {{ post.likes|length }} likes
+
+                            </button>
+
+                        </form>
+
+                    </div>
+
+                    <!-- Comment Form -->
+                    <form method="POST"
+                          action="/posts/{{ post.id }}/comment"
+                          class="mb-3">
+
+                        <div class="input-group">
+
+                            <input type="text"
+                                   name="comment"
+                                   class="form-control"
+                                   placeholder="Write a comment..."
+                                   required>
+
+                            <button type="submit"
+                                    class="btn btn-outline-primary">
+                                Comment
+                            </button>
+
+                        </div>
+
+                    </form>
+
+                    <!-- Comments -->
+                    <h6>💬 Comments</h6>
+
+                    {% if post.comments %}
+
+                        {% for comment in post.comments %}
+
+                        <div class="border rounded p-2 mb-2">
+
+                            <strong>
+                                👤 {{ comment.author_name }}
+                            </strong>
+
+                            <small class="text-muted ms-2">
+                                {{ comment.created_at }}
+                            </small>
+
+                            <div class="mt-1">
+                                {{ comment.content }}
+                            </div>
+
+                        </div>
+
+                        {% endfor %}
+
+                    {% else %}
+
+                        <small class="text-muted">
+                            No comments yet.
+                        </small>
+
+                    {% endif %}
+
+                </div>
+            </div>
+
+            {% endfor %}
+
+        {% else %}
+
+            <div class="card shadow-sm">
+                <div class="card-body text-center">
+
+                    <h5>No posts yet</h5>
+
+                    <p class="text-muted">
+                        Be the first person to share a work update!
+                    </p>
+
+                </div>
+            </div>
+
+        {% endif %}
+
+    </div>
+</div>
+
+{% else %}
+
+<!-- Welcome Page -->
+
 <div class="text-center mb-5">
-    <h1 class="display-5 fw-bold">Welcome to WorkLog</h1>
+
+    <h1 class="display-5 fw-bold">
+        Welcome to WorkLog
+    </h1>
+
     <p class="lead text-muted">
         Share your work, connect with people, and keep track of your progress.
     </p>
@@ -17,7 +192,10 @@
     <a href="/login" class="btn btn-outline-dark">
         Login
     </a>
+
 </div>
+
+<!-- Features -->
 
 <div class="row g-4">
 
@@ -55,5 +233,7 @@
     </div>
 
 </div>
+
+{% endif %}
 
 {% endblock %}
