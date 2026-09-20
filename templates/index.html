@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Home - WorkLog{% endblock %}
+
+{% block content %}
+
+<div class="text-center mb-5">
+    <h1 class="display-5 fw-bold">Welcome to WorkLog</h1>
+    <p class="lead text-muted">
+        Share your work, connect with people, and keep track of your progress.
+    </p>
+
+    <a href="/register" class="btn btn-primary me-2">
+        Get Started
+    </a>
+
+    <a href="/login" class="btn btn-outline-dark">
+        Login
+    </a>
+</div>
+
+<div class="row g-4">
+
+    <div class="col-md-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">👤 Profiles</h5>
+                <p class="card-text">
+                    Create your profile and showcase what you are working on.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">📝 Posts</h5>
+                <p class="card-text">
+                    Share updates, achievements, and daily work with your network.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">🤝 Connect</h5>
+                <p class="card-text">
+                    Follow other users and stay updated with their work.
+                </p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}
